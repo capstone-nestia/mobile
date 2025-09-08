@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  # CI en CUALQUIER push (feedback inmediato para developers)
+  push:
+    branches: ['**']
+  # CI en PRs hacia develop y main
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🏗 Setup repo
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🧹 Run ESLint
+        run: npm run lint
+
+      - name: 🎨 Check Prettier formatting
+        run: npx prettier --check "**/*.{js,jsx,ts,tsx,json,md}"
+
+      - name: 📱 Check TypeScript
+        run: npx tsc --noEmit
+
+      - name: 🧪 Run tests
+        run: npm test -- --coverage --watchAll=false
+
+  android-build-check:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+
+    steps:
+      - name: 🏗 Setup repo
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: 🏗 Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🤖 Android build check (no upload)
+        run: eas build --platform android --non-interactive --no-wait --profile development

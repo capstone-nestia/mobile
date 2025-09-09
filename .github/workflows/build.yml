@@ -1,0 +1,81 @@
+name: Build Android
+
+on:
+  # Build solo cuando se hace MERGE a develop
+  push:
+    branches: [develop]
+  # NO builds en main ni tags por ahora
+
+jobs:
+  build-android-dev:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🏗 Setup repo
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 🏗 Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🤖 Build Android APK for development
+        run: |
+          eas build \
+            --platform android \
+            --non-interactive \
+            --profile development
+
+      - name: 📱 Get build info
+        id: build-info
+        run: |
+          BUILD_URL=$(eas build:list --platform android --limit 1 --json | jq -r '.[0].artifacts.buildUrl // "N/A"')
+          echo "build_url=$BUILD_URL" >> $GITHUB_OUTPUT
+          echo "✅ Android APK built successfully!"
+
+      - name: 💬 Comment with APK download link
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const buildUrl = '${{ steps.build-info.outputs.build_url }}';
+            const commitMessage = context.payload.head_commit ? context.payload.head_commit.message : 'No commit message';
+
+            // Create issue/comment for team notification
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 New APK Ready - ${new Date().toLocaleDateString()}`,
+              body: `
+              ## 📱 Development APK Ready!
+
+              **Commit:** ${context.sha.substring(0, 7)}  
+              **Message:** ${commitMessage}  
+              **Build Time:** ${new Date().toLocaleString()}
+
+              ### 📥 Download APK
+              [📱 Download Android APK](${buildUrl})
+
+              ### 📋 Testing Instructions
+              1. Download APK from link above
+              2. Install on Android device: \`adb install app.apk\`
+              3. Or share link with team for direct download
+
+              ### 🔗 Links  
+              - [Build Details](https://expo.dev/accounts/[YOUR-USERNAME]/projects/my-app/builds)
+              - [Commit Details](${context.payload.head_commit ? context.payload.head_commit.url : ''})
+
+              _This APK was generated automatically from develop branch._
+              `,
+              labels: ['apk-ready', 'development']
+            })

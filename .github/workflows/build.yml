@@ -1,14 +1,13 @@
 name: Build Android
 
 on:
-  # Build solo cuando se hace MERGE a develop/main o tags
+  # Build solo cuando se hace MERGE a develop
   push:
-    branches: [develop, main]
-    tags: ['v*']
-  # NO en feature branches (solo CI básico ahí)
+    branches: [develop]
+  # NO builds en main ni tags por ahora
 
 jobs:
-  build-android:
+  build-android-dev:
     runs-on: ubuntu-latest
 
     steps:
@@ -31,62 +30,52 @@ jobs:
       - name: 📦 Install dependencies
         run: npm ci
 
-      - name: 🔧 Determine build profile
-        id: profile
-        run: |
-          if [[ $GITHUB_REF == refs/tags/v* ]]; then
-            echo "profile=production" >> $GITHUB_OUTPUT
-            echo "environment=production" >> $GITHUB_OUTPUT
-            echo "build_type=aab" >> $GITHUB_OUTPUT
-          elif [[ $GITHUB_REF == refs/heads/main ]]; then
-            echo "profile=staging" >> $GITHUB_OUTPUT
-            echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "build_type=aab" >> $GITHUB_OUTPUT
-          elif [[ $GITHUB_REF == refs/heads/develop ]]; then
-            echo "profile=development" >> $GITHUB_OUTPUT
-            echo "environment=development" >> $GITHUB_OUTPUT
-            echo "build_type=apk" >> $GITHUB_OUTPUT
-          fi
-
-      - name: 🤖 Build Android app
+      - name: 🤖 Build Android APK for development
         run: |
           eas build \
             --platform android \
             --non-interactive \
-            --profile ${{ steps.profile.outputs.profile }}
+            --profile development
 
       - name: 📱 Get build info
         id: build-info
         run: |
           BUILD_URL=$(eas build:list --platform android --limit 1 --json | jq -r '.[0].artifacts.buildUrl // "N/A"')
           echo "build_url=$BUILD_URL" >> $GITHUB_OUTPUT
-          echo "✅ Android build completed for ${{ steps.profile.outputs.environment }}"
+          echo "✅ Android APK built successfully!"
 
-      - name: 💬 Comment PR with build info
-        if: github.event_name == 'pull_request'
+      - name: 💬 Comment with APK download link
         uses: actions/github-script@v6
         with:
           script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+            const buildUrl = '${{ steps.build-info.outputs.build_url }}';
+            const commitMessage = context.payload.head_commit ? context.payload.head_commit.message : 'No commit message';
+
+            // Create issue/comment for team notification
+            github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
+              title: `🤖 New APK Ready - ${new Date().toLocaleDateString()}`,
               body: `
-              🤖 **Android Build completed for ${{ steps.profile.outputs.environment }}**
+              ## 📱 Development APK Ready!
 
-              - Build Type: ${{ steps.profile.outputs.build_type }}
-              - Profile: ${{ steps.profile.outputs.profile }}
-              - Commit: ${context.sha.substring(0, 7)}
+              **Commit:** ${context.sha.substring(0, 7)}  
+              **Message:** ${commitMessage}  
+              **Build Time:** ${new Date().toLocaleString()}
 
-              📱 [Download APK/AAB](${{ steps.build-info.outputs.build_url }})
-              🔗 [View in Expo Dashboard](https://expo.dev/accounts/[YOUR-USERNAME]/projects/my-app/builds)
-              `
+              ### 📥 Download APK
+              [📱 Download Android APK](${buildUrl})
+
+              ### 📋 Testing Instructions
+              1. Download APK from link above
+              2. Install on Android device: \`adb install app.apk\`
+              3. Or share link with team for direct download
+
+              ### 🔗 Links  
+              - [Build Details](https://expo.dev/accounts/[YOUR-USERNAME]/projects/my-app/builds)
+              - [Commit Details](${context.payload.head_commit ? context.payload.head_commit.url : ''})
+
+              _This APK was generated automatically from develop branch._
+              `,
+              labels: ['apk-ready', 'development']
             })
-
-      - name: 📤 Upload APK as artifact (development only)
-        if: steps.profile.outputs.profile == 'development'
-        uses: actions/upload-artifact@v3
-        with:
-          name: android-apk-${{ github.sha }}
-          path: "*.apk"
-          retention-days: 30
